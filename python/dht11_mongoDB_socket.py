@@ -4,6 +4,7 @@ import time
 import json
 import pymongo
 import bson.json_util as json_util
+import hashlib
 
 # dht11 object and raspi pin
 DHT_SENSOR = Adafruit_DHT.DHT11
@@ -24,15 +25,24 @@ def dht11_collect():
             print(now_time)
             print("Temp={0:0.1f}C Humidity={1:0.1f}".format(temperature, humidity))
             data_dict = {"Time":now_time, "Temp":temperature, 'Humidity': humidity}
+            iota_dict = data_dict.copy()
+            mongo_dict = data_dict.copy()
 
-            # upload to mongoDB
-            mongoDB_upload(json.loads(json_util.dumps(data_dict)))
+            # hash data and insert to dict
+            iota_sha256 = sha256_encrypt(json.dumps(data_dict))
+            iota_dict['hash'] = iota_sha256
 
             # change dict to string
-            data_str = json.dumps(data_dict)
-            print(data_str)
+            iota_data_str = json.dumps(iota_dict)
+            
             # send data to nodejs for upload to iota
-            socket_client(data_str)
+            msgId = socket_client(iota_data_str)
+
+            # add msgId to mongo_dict and upload to mongoDB
+            mongo_dict['msgId'] = msgId
+            mongoDB_upload(json.loads(json_util.dumps(mongo_dict)))
+
+
 
 
 def socket_client(data):
@@ -46,6 +56,7 @@ def socket_client(data):
     print('recv: ' + indata.decode())
 
     s.close()
+    return indata.decode()
 
 def mongoDB_upload(data):
     myclient = pymongo.MongoClient("mongodb://TestUser:password@140.120.40.132:27017/")
@@ -54,6 +65,13 @@ def mongoDB_upload(data):
     mycol = mydb["dht11_mongoDB_test"]
     collst = mydb.list_collection_names()
     x = mycol.insert_one(data)
+
+# sha256
+def sha256_encrypt(data):
+    iota_sha256_str = data.replace(" ", "").encode('utf-8')
+    iota_sha256 = hashlib.sha256(iota_sha256_str).hexdigest()
+    print("iota_sha256 = "+iota_sha256)
+    return iota_sha256
 
 if __name__ == '__main__':
     dht11_collect()
